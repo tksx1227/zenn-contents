@@ -16,7 +16,7 @@ DNSサーバー用のOSにはDebian11を使用します（特に深い意味は�
 
 必要なパッケージ等を記述したDockerfileはこちらになります。
 
-```Dockerfile
+```Dockerfile:Dockerfile
 FROM debian:11
 RUN apt update && apt install -y \
     systemctl \
