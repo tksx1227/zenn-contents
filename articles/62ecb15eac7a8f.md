@@ -3,20 +3,22 @@ title: "Debian11で簡易的なDNSサーバーを立てる"
 emoji: "🖥"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["Debian", "DNS", "Docker"]
-published: false
+published: true
 ---
 
 # はじめに
 最近DNSサーバーを触る機会があったので、その復習も兼ねて、ローカル上で簡易的なDNSサーバーを立てる手順を解説してみます。
+
 # 開発環境
 DNSサーバー用のOSにはDebian11を使用します（特に深い意味はないです）。
+
 また、仮想環境はDocker上に立てていきます。
 
 必要なパッケージ等を記述したDockerfileはこちらになります。
 
 ```Dockerfile
 FROM debian:11
-RUN apt update && apt install \
+RUN apt update && apt install -y \
     systemctl \
     bind9 \
     dnsutils
@@ -29,13 +31,15 @@ RUN apt update && apt install \
 * `dnsutils`: `nslookup` や `dig` などが入ったパッケージ
 
 # 構成
-今回扱うDNSサーバーでは、ドメイン名を「tksx1227.dns-server.com」とし、その解決先となるIPアドレスをこちらの記事のアドレスに設定していこうと思います。
-また、DNSサーバーの確認には、`nslookup` コマンドとwebブラウザを使用していこうと思います。
+今回構築するDNSサーバーでは、ドメイン名「tksx1227.dns-server.com」を、「192.168.200.42」に解決するという処理を行えるように設定していこうと思います。
 
-![](/images/DNS_server/img1.png)
+当然、逆引きにも対応させます。
+
+![参考画像](/images/DNS_server/img1.png)
 
 # 各種設定
 設定ファイルに変更を加える前にDNSサーバーを停止しておきましょう。
+
 `named` はDNSサーバーのことです。
 
 ```bash
@@ -49,8 +53,10 @@ DNSの設定ファイルはデフォルトで `/etc/bind/named.conf` が読み�
 * `options`: DNS本体の設定を記述する
 * `zone`: ゾーンに関する設定を記述する
 
-※ ゾーンとはDNSが管理する範囲のことを言います。
+:::message
+ゾーンとはDNSが管理する範囲のことを言います。
 ここでは ゾーン＝ドメイン と考えても差し支えないでしょう。
+:::
 
 設定ファイルのイメージです。
 
@@ -59,7 +65,7 @@ options {
 
 };
 
-zone <zone name> {
+zone <Zone Name> {
 
 };
 ```
@@ -122,6 +128,7 @@ include "/etc/bind/named.conf.default-zones";
 ```
 
 オプションがいくつかあるので、必要に応じて追加で設定します。
+
 これ以外にもまだまだオプションは存在するので、気になった方は調べてみてください。
 
 |  オプション  |  説明  |
@@ -136,9 +143,10 @@ include "/etc/bind/named.conf.default-zones";
 
 これでローカルホストからのみ問い合わせを受け付けるという設定が完了しました。
 
-再帰問い合わせを有効化することで、自前DNSサーバーで解決できない名前は既存のDNSサーバーに問い合わせるといった処理が設定できますが、今回は特に必要ないのでこのままでいきます。
+再帰問い合わせを有効化することで、自前DNSサーバーで解決できない名前は既存のDNSサーバーに問い合わせるといった設定ができますが、今回は特に必要ないのでこのままでいきます。
 
 以下のコマンドで設定ファイルの構文チェックができるので、適宜確認することをおすすめします。
+
 ```bash
 $ named-checkconf [named.conf's path]
 ```
@@ -148,63 +156,76 @@ DNS本体の設定が終わったので、ここからはゾーンの設定を�
 
 ゾーンの設定は、`named.conf` の `zone` ステートメントの記述と、そのゾーン固有の設定ファイルの２つを編集する必要があります。
 
-`localhost` の例が `named.conf.default-zones` に記述されているので、これを真似て `named.conf.local` に追記していきます。
+早速 `named.conf.local` に追記していきます。
 
-```:named.conf.default-zones
-// prime the server with knowledge of the root servers
-zone "." {
-        type hint;
-        file "/usr/share/dns/root.hints";
-};
+下の例では、１つ目が正引き、２つ目が逆引きのゾーン設定となっています。
 
-// be authoritative for the localhost forward and reverse zones, and for
-// broadcast zones as per RFC 1912
-
-zone "localhost" {
-        type master;
-        file "/etc/bind/db.local";
-};
-
-...
-
-```
-
-`file` にはゾーン固有の設定ファイルのパスを指定します。
-これは絶対パスでもいいのですが、`options` ステートメントで指定したディレクトリ配下にあるファイルの場合は、ファイル名だけでも大丈夫です。
 ```:named.conf.local
 zone "tksx1227.dns-server.com" {
         type master;
-        file "tksx1227.dns-server.com"
+        file "tksx1227.dns-server.com";
+};
+
+zone "200.168.192.in-addr.arpa." {
+        type master;
+        file "tksx1227.dns-server.com.rev";
 };
 ```
+
+:::message
+逆引きは名前空間の都合よりIPアドレスを逆順に記述していきます。
+`.in-addr.arpa.` は名前空間の上位層にあたります。
+:::
+
+上で指定したアドレスは 192.168.200.xxx というアドレスに対するゾーン設定ということですね。
+もちろん、この時点で 192.168.200.42 ただ一つに対するゾーンの設定もできるのですが、範囲で設定することの方が多いようなので、そちらを真似ています。
+
+`file` にはゾーン固有の設定ファイルのパスを指定します。
+
+これは絶対パスでもいいのですが、`options` ステートメントで指定したディレクトリ配下にあるファイルの場合は、ファイル名だけでも大丈夫です。
 
 `type` には以下の３種類がありますが、基本的には `master` で大丈夫でしょう。
 
 |  type  |  説明  |
 | ---- | ---- |
 |  hint  |  DNSのルートゾーンを表す  |
-|  master  |  ネームサーバがこのゾーンのプライマリDNSサーバであることを定義する  |
+|  master  |  ネームサーバがこのゾーンの権威DNSサーバであることを定義する  |
 |  slave  |  ネームサーバがこのゾーンのセカンダリDNSサーバであることを定義する  |
 
+:::message
+権威DNSサーバーとは、実際に該当ゾーンの情報を管理しているDNSサーバーのことです。
+外部のDNSサーバーに委託せずに自分自身で名前解決を行うことができます。
+:::
 
-では、`file` で指定した `tksx1227.dns-server.com` というファイルを `/var/cache/bind/` に作成していきます。
+では、`file` で指定した `tksx1227.dns-server.com`, `tksx1227.dns-server.com.rev` というファイルを `/var/cache/bind/` に作成していきます。
 
 ```:tksx1227.dns-server.com
-$TTL 86400
-@     IN      SOA     tksx1227.dns-server.com. sample.dns-server.com. (
-                  2          ; Serial
-                  10800      ; refresh
-                  600        ; retry
-                  2419200    ; expire
-                  86400 )    ; Negative
+tksx1227.dns-server.com.      86400      IN      SOA      localhost. sample.mail.com. (
+               2022050800   ; Serial
+               10800        ; Refresh
+               600          ; Retry
+               2419200      ; Expire
+               86400 )      ; Minimum
 
-@       IN      NS      tksx1227.dns-server.com.
-@       IN      A       142.250.207.3
+tksx1227.dns-server.com.      86400      IN      NS      localhost.
+tksx1227.dns-server.com.      86400      IN      A       192.168.200.42
 ```
 
-ゾーンファイルは、レコードを複数行並べることで構成されています。
+```:tksx1227.dns-server.com.rev
+200.168.192.in-addr.arpa.      86400      IN      SOA      localhost. sample.mail.com. (
+               2022050800   ; Serial
+               10800        ; Refresh
+               600          ; Retry
+               2419200      ; Expire
+               86400 )      ; Minimum
 
-上の例では、途中改行を入れていますが、＠マークから始まるブロックが１行にあたるので、合計３行のレコードが記述されていることになります。
+200.168.192.in-addr.arpa.      86400      IN      NS      localhost.
+42                             86400      IN      PTR     tksx1227.dns-server.com.
+```
+
+ゾーンファイルは、DNSレコードを複数行並べることで構成されています。
+
+上の例では、可読性の観点から途中改行を入れていますが、それぞれ３つのレコードで構成されていることになります。
 
 `;` に続く文字列はコメントです。
 
@@ -216,14 +237,137 @@ $TTL 86400
 
 |  項目  |  説明  |
 | ---- | ---- |
-|  ラベル  |  ドメインの名前  |
+|  ラベル  |  ラベルの名前  |
 |  TTL  |  キャッシュの生存時間  |
-|  クラス  |  レコードのクラス<br>現在は IN 以外を使うことは一切無いと考えてOK  |
-|  タイプ  |  このレコードがなんの設定を行うのかを表す  |
-|  データ  |  実際の設定データを指定する<br>タイプによって省略可能  |
+|  クラス  |  DNSレコードのクラス<br>現在は IN（Internetの略らしい） 以外を使うことは一切無いと考えてOK  |
+|  タイプ  |  DNSレコードの種類を表す  |
+|  データ  |  実際の設定データを指定する<br>タイプによって書き方が変わる  |
 
+上の例はかなり冗長に記述したものであるため、少し簡略化してみましょう。
+
+ラベルは `@` で置き換えることができ、`@` を指定すると、`named.conf` のゾーンステートメントで指定した名前が使用されます。
+今回の例だと `@` は `tksx1227.dns-server.com` や `200.168.192.in-addr.arpa.` として解釈されます。
+
+また、２つ目のレコード以降はラベルを省略することができ、省略した場合は１つ上のレコードと同じラベルとして解釈されます。
+
+TTLはファイルの頭で一括で指定することもでき、次のように記述することで各レコードのTTLも省略することができます。
+
+```
+$TTL 86400
+```
+
+上記を取り入れてゾーンファイルを書き直すと多少スッキリと記述できます。
+
+```:tksx1227.dns-server.com
+$TTL 86400
+@      IN      SOA      localhost. sample.mail.com. (
+               2022050800   ; Serial
+               10800        ; Refresh
+               600          ; Retry
+               2419200      ; Expire
+               86400 )      ; Minimum
+
+       IN      NS       localhost.
+       IN      A        192.168.200.42
+```
+
+```:tksx1227.dns-server.com.rev
+$TTL 86400
+@      IN      SOA      localhost. sample.mail.com. (
+               2022050800   ; Serial
+               10800        ; Refresh
+               600          ; Retry
+               2419200      ; Expire
+               86400 )      ; Minimum
+
+       IN      NS       localhost.
+42     IN      PTR      tksx1227.dns-server.com.
+```
+
+:::message alert
+DNSサーバー名やメールアドレスの末尾には `.` を付ける必要があるので、忘れないようにしましょう。
+`.` を忘れても構文エラーにはなりませんが、別の文字列として解釈されるためデバッグが大変になります。
+:::
+
+では各レコードの役割を簡単に説明していきます。
+
+### SOAレコード
+SOAレコードは、該当するゾーンの情報を記述するレコードになります。
+
+データのフィールドには、DNSサーバー名と管理者のメールアドレス、DNSサーバーの各種設定の３項目を記述します。
+
+:::message
+ゾーンファイルはSOAレコードを一番最初に記述する必要があります。
+:::
+
+DNSサーバー名は、このゾーンを管理するDNSサーバーの名前を記述する必要があるので、今回は `localhost` となります。
+
+DNSサーバーにドメインを振っている場合は、`xxx.my-dns-server.jp.` などの独自の値を記述してください。
+
+メールアドレスは、DNSの管理者のメールアドレスを入力する必要があります。
+ 今回は適当な連絡先を指定します。
+
+:::message
+メールアドレスは `@` を `.` で置き換える必要があるので注意してください。
+:::
+
+DNSサーバーの各種設定項目は以下の通りです。
+
+|  項目  |  説明  |
+| ---- | ---- |
+|  Serial  |  適当なシリアルナンバー  |
+|  Refresh  |  セカンダリサーバーへの転送間隔  |
+|  Retry  |  リフレッシュ失敗時の再送間隔  |
+|  Expire  |  リフレッシュ失敗時のセカンダリサーバの有効期間  |
+|  Minimum  |  存在しないドメインのキャッシュを保持する期間  |
+
+それぞれ適当な値を設定します。
+
+### NSレコード
+NSレコードは、該当するゾーンを管理しているDNSサーバーの名前を記述するレコードになります。
+
+こちらはデータフィールドにDNSサーバーの名前だけを記述すればOKです。
+
+今回は、`tksx1227.dns-server.com` というゾーンを `localhost` で管理することになるので、`localhost.` とだけ記述します。
+
+```
+       IN      NS       localhost.
+```
+
+### Aレコード
+Aレコードは、正引きのドメインとIPアドレスの紐付けを行うレコードになります。
+
+こちらはデータフィールドに紐づけるIPアドレスを指定すればOKです。
+
+今回は、`192.168.200.42` とだけ記述します。
+
+```
+       IN      A        142.250.207.3
+```
+
+### PTRレコード
+PTRレコードは、逆引きのドメインとIPアドレスの紐付けを行うレコードになります。
+
+こちらは、ゾーンを範囲で設定している場合、ラベルに可変部のアドレスを記述する必要があります。
+
+今回の場合だと逆引きのゾーン設定は、`192.168.200.xxx` の設定を行うようにしており、可変部 `xxx` には `42` が入るので、ラベルには `42` とだけ記述します。
+
+`42` 以外にも設定したい場合には適宜追加するといいでしょう。
+
+```
+42     IN      PTR      tksx1227.dns-server.com.
+```
+
+これで正引き、逆引きの設定ができたので、動作確認に移りましょう。
 
 # 動作確認
+DNSを起動して動作確認を行います。
+
+```bash
+$ systemctl start named
+$ systemctl enable named
+```
+
 動作確認には `nslookup` コマンドを使用します。
 
 `nslookup` は以下のようにして使用できます。
@@ -238,16 +382,34 @@ $ nslookup <IP Address or Domain Name> [DNS Server]
 
 ```bash
 $ nslookup tksx1227.dns-server.com localhost
-$ nslookup xxxx.xxxx.xxxx.xxxx localhost
+Server:         localhost
+Address:        127.0.0.1#53
+
+Name:   tksx1227.dns-server.com
+Address: 192.168.200.42
+
+$ nslookup 192.168.200.42 localhost
+42.200.168.192.in-addr.arpa     name = tksx1227.dns-server.com.
+
 ```
 
-これで無事名前解決が実行できることが確認できました。
+これで無事設定通りに名前解決が実行できていることが確認できました。
+
+やったぜ ٩(ˊᗜˋ*)و
 
 # おわりに
+DNSサーバーなんて普段触らないので、自分で構築するのも楽しいですね。
+
+ただ、まだまだ自分の知らない設定が数多くあるようなので、時間があればもう少しセキュリティなどを意識した構成も調べてみようと思います。
+
+技術的な間違いのご指摘は大歓迎なので、是非コメントいただけると幸いですmm
 
 # 参考にした記事
 @[card](https://nanbu.marune205.net/2021/12/debian-dns-bind.html?m=1)
 @[card](https://digitalmania.info/linux/debian-11/build-dns-server/)
 @[card](http://park12.wakwak.com/~eslab/pcmemo/linux/bind/bind2.html)
+@[card](https://qiita.com/leomaro7/items/d6907d0a2aee890fe52b#%E3%82%BE%E3%83%BC%E3%83%B3%E3%83%95%E3%82%A1%E3%82%A4%E3%83%AB)
+@[card](https://atmarkit.itmedia.co.jp/fnetwork/dnstips/031.html)
+@[card](https://www.eis.co.jp/bind9_src_build_3/)
 @[card](https://wa3.i-3-i.info/word12285.html)
 
