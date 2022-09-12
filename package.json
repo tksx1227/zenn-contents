@@ -18,6 +18,6 @@
   },
   "homepage": "https://github.com/tksx1227/zenn-contents#readme",
   "dependencies": {
-    "zenn-cli": "^0.1.121"
+    "zenn-cli": "^0.1.123"
   }
 }
